@@ -1220,15 +1220,29 @@ public partial class SettingsDialog : Window
 
     private void OnOk(object sender, RoutedEventArgs e)
     {
+        SaveAppliedSettings();
         _accepted = true;
-        ApplyDraftToLive();
-        _saveCallback?.Invoke();
         Close();
     }
 
     private void OnCancel(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void OnApply(object sender, RoutedEventArgs e)
+    {
+        SaveAppliedSettings();
+    }
+
+    private void SaveAppliedSettings()
+    {
+        ApplyDraftToLive();
+        _saveCallback?.Invoke();
+
+        // “取消”只回滚应用之后尚未保存的改动。
+        _original.CopyFrom(_cfg);
+        _hotkeyChanged = false;
     }
 
     protected override void OnClosing(CancelEventArgs e)
