@@ -16,11 +16,17 @@ internal sealed class FuturesProductParameter
 
 internal static class FuturesProductCode
 {
+    public static string ForDisplay(string? contract)
+    {
+        if (string.IsNullOrWhiteSpace(contract)) return "";
+        var value = contract.Trim();
+        return value.StartsWith("nf_", StringComparison.OrdinalIgnoreCase) ? value[3..] : value;
+    }
+
     public static string? FromContract(string? contract)
     {
         if (string.IsNullOrWhiteSpace(contract)) return null;
-        var value = contract.Trim();
-        if (value.StartsWith("nf_", StringComparison.OrdinalIgnoreCase)) value = value[3..];
+        var value = ForDisplay(contract);
 
         var length = 0;
         while (length < value.Length && char.IsLetter(value[length])) length++;

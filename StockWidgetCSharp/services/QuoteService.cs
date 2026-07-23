@@ -73,7 +73,7 @@ internal sealed class QuoteService : IDisposable
 
             List<QuoteRow>? rows;
             if (_cfg.Market == "futures")
-                rows = SinaFutures.Fetch(codes, _cfg.ShortCode, _cfg.NameLength, _cfg.FutAbbrev);
+                rows = SinaFutures.Fetch(codes, _cfg.NameLength, _cfg.FutAbbrev);
             else
                 rows = SinaStock.Fetch(codes, _cfg.ShortCode, _cfg.NameLength, _cfg.B1s1Display);
             Refreshed?.Invoke(rows.Count > 0

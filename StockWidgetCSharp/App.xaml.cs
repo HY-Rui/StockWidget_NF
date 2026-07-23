@@ -71,7 +71,17 @@ public partial class App : Application
             Visible = true,
         };
         ApplyTrayIcon();
-        var menu = new System.Windows.Forms.ContextMenuStrip();
+        var menu = new System.Windows.Forms.ContextMenuStrip
+        {
+            BackColor = System.Drawing.Color.White,
+            ForeColor = System.Drawing.Color.FromArgb(32, 32, 32),
+            Font = new System.Drawing.Font("Microsoft YaHei UI", 8.5F),
+            Padding = new System.Windows.Forms.Padding(3, 2, 3, 2),
+            ShowImageMargin = false,
+            ShowCheckMargin = true,
+            DropShadowEnabled = true,
+            Renderer = new ModernToolStripRenderer()
+        };
         menu.Opening += (s, e) =>
         {
             if (_trayMouseThroughItem != null && _cfg != null)
@@ -95,6 +105,20 @@ public partial class App : Application
         menu.Items.Add("设置…", null, (s, e) => OpenSettings());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("退出", null, (s, e) => QuitApp());
+        foreach (System.Windows.Forms.ToolStripItem item in menu.Items)
+        {
+            if (item is System.Windows.Forms.ToolStripSeparator)
+            {
+                item.Margin = new System.Windows.Forms.Padding(5, 2, 5, 2);
+            }
+            else
+            {
+                item.Padding = new System.Windows.Forms.Padding(7, 3, 10, 3);
+                item.Margin = new System.Windows.Forms.Padding(0);
+            }
+        }
+        menu.Opened += (s, e) => ApplyRoundedMenuRegion(menu);
+        menu.SizeChanged += (s, e) => ApplyRoundedMenuRegion(menu);
         _tray.ContextMenuStrip = menu;
         _tray.MouseClick += (s, e) =>
         {
@@ -235,5 +259,78 @@ public partial class App : Application
         _hotkey?.Dispose();
         if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         Shutdown();
+    }
+
+    private static void ApplyRoundedMenuRegion(System.Windows.Forms.ContextMenuStrip menu)
+    {
+        if (menu.Width <= 1 || menu.Height <= 1) return;
+        using var path = CreateRoundedPath(new System.Drawing.Rectangle(0, 0, menu.Width, menu.Height), 8);
+        var previous = menu.Region;
+        menu.Region = new System.Drawing.Region(path);
+        previous?.Dispose();
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath CreateRoundedPath(System.Drawing.Rectangle bounds, int radius)
+    {
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var diameter = radius * 2;
+        var arc = new System.Drawing.Rectangle(bounds.Location, new System.Drawing.Size(diameter, diameter));
+        path.AddArc(arc, 180, 90);
+        arc.X = bounds.Right - diameter - 1;
+        path.AddArc(arc, 270, 90);
+        arc.Y = bounds.Bottom - diameter - 1;
+        path.AddArc(arc, 0, 90);
+        arc.X = bounds.Left;
+        path.AddArc(arc, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    private sealed class ModernToolStripRenderer : System.Windows.Forms.ToolStripProfessionalRenderer
+    {
+        public ModernToolStripRenderer() : base(new ModernMenuColorTable())
+        {
+            RoundedEdges = true;
+        }
+
+        protected override void OnRenderMenuItemBackground(System.Windows.Forms.ToolStripItemRenderEventArgs e)
+        {
+            if (!e.Item.Selected || !e.Item.Enabled) return;
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var bounds = new System.Drawing.Rectangle(3, 1, Math.Max(1, e.Item.Width - 6), Math.Max(1, e.Item.Height - 2));
+            using var path = CreateRoundedPath(bounds, 5);
+            using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(242, 242, 242));
+            e.Graphics.FillPath(brush, path);
+        }
+
+        protected override void OnRenderSeparator(System.Windows.Forms.ToolStripSeparatorRenderEventArgs e)
+        {
+            using var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(232, 232, 232));
+            var y = e.Item.Height / 2;
+            e.Graphics.DrawLine(pen, 8, y, Math.Max(8, e.Item.Width - 8), y);
+        }
+
+        protected override void OnRenderToolStripBorder(System.Windows.Forms.ToolStripRenderEventArgs e)
+        {
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using var path = CreateRoundedPath(new System.Drawing.Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1), 8);
+            using var pen = new System.Drawing.Pen(System.Drawing.Color.FromArgb(218, 218, 218));
+            e.Graphics.DrawPath(pen, path);
+        }
+    }
+
+    private sealed class ModernMenuColorTable : System.Windows.Forms.ProfessionalColorTable
+    {
+        public override System.Drawing.Color ToolStripDropDownBackground => System.Drawing.Color.White;
+        public override System.Drawing.Color MenuBorder => System.Drawing.Color.FromArgb(218, 218, 218);
+        public override System.Drawing.Color MenuItemBorder => System.Drawing.Color.Transparent;
+        public override System.Drawing.Color MenuItemSelected => System.Drawing.Color.FromArgb(242, 242, 242);
+        public override System.Drawing.Color ImageMarginGradientBegin => System.Drawing.Color.White;
+        public override System.Drawing.Color ImageMarginGradientMiddle => System.Drawing.Color.White;
+        public override System.Drawing.Color ImageMarginGradientEnd => System.Drawing.Color.White;
+        public override System.Drawing.Color SeparatorDark => System.Drawing.Color.FromArgb(232, 232, 232);
+        public override System.Drawing.Color SeparatorLight => System.Drawing.Color.FromArgb(232, 232, 232);
+        public override System.Drawing.Color CheckBackground => System.Drawing.Color.FromArgb(232, 241, 255);
+        public override System.Drawing.Color CheckSelectedBackground => System.Drawing.Color.FromArgb(222, 235, 255);
     }
 }

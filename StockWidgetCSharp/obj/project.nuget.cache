@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dgSpecHash": "QjsJkJGrlss=",
+  "success": true,
+  "projectFilePath": "s:\\Code_Programs\\1_Code_Multi\\StockWidget\\StockWidgetCSharp\\StockWidgetCSharp.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\ZR\\.nuget\\packages\\system.text.encoding.codepages\\9.0.0\\system.text.encoding.codepages.9.0.0.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.18\\microsoft.netcore.app.ref.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\9.0.18\\microsoft.netcore.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.18\\microsoft.windowsdesktop.app.ref.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\9.0.18\\microsoft.windowsdesktop.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.18\\microsoft.aspnetcore.app.ref.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\9.0.18\\microsoft.aspnetcore.app.runtime.win-x64.9.0.18.nupkg.sha512",
+    "C:\\Users\\ZR\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\9.0.18\\microsoft.netcore.app.host.win-x64.9.0.18.nupkg.sha512"
+  ],
+  "logs": []
+}

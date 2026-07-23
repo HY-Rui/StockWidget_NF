@@ -9,6 +9,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 
 namespace StockWidget;
@@ -63,6 +64,17 @@ public partial class SettingsDialog : Window
     private TextBox _txtHotkey = new();
     private ComboBox _cmbIcon = new();
 
+    private const string CodeDragFormat = "StockWidget.CodeListItem";
+    private readonly System.Windows.Threading.DispatcherTimer _codeDragHoldTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(450)
+    };
+    private ListBoxItem? _codeDragCandidate;
+    private ListBoxItem? _codeDragMarkerItem;
+    private Point _codeDragStart;
+    private bool _codeDragActive;
+    private bool _codeDragOrderChanged;
+
     private bool _suppressChange;
     private bool _accepted;
     private bool _hotkeyChanged;
@@ -84,6 +96,7 @@ public partial class SettingsDialog : Window
         _saveCallback = saveCallback;
         _setIconCallback = setIconCallback;
         _setHotkeyCallback = setHotkeyCallback;
+        _codeDragHoldTimer.Tick += OnCodeDragHoldElapsed;
         InitializeComponent();
         RestoreWindowPosition();
         BuildAllTabs();
@@ -97,18 +110,40 @@ public partial class SettingsDialog : Window
         BuildTabGeneral();
     }
 
+    private static object CreateNavigationHeader(string icon, string title)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(new TextBlock
+        {
+            Text = icon,
+            FontFamily = new FontFamily("Segoe UI Symbol"),
+            FontSize = 15,
+            Width = 24,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
+            FontSize = 12,
+            FontWeight = FontWeights.Normal,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        return panel;
+    }
+
     // ====================== Tab0：自选列表 ======================
 
     private void BuildTabCodes()
     {
-        var tab = new TabItem { Header = "自选列表" };
-        var panel = new Grid { Margin = new Thickness(10) };
+        var tab = new TabItem { Header = CreateNavigationHeader("☷", "自选列表"), Tag = "自选列表" };
+        var panel = new Grid { Margin = new Thickness(4) };
         panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         // 市场
-        var gMarket = new GroupBox { Header = "市场", Margin = new Thickness(0, 0, 0, 8) };
-        var marketPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
+        var gMarket = new GroupBox { Header = "市场", Margin = new Thickness(0, 0, 0, 4) };
+        var marketPanel = new StackPanel { Orientation = Orientation.Horizontal };
         _cmbMarket.Width = 136;
         _cmbMarket.Items.Add(new ComboBoxItem { Content = "股票", Tag = "stock" });
         _cmbMarket.Items.Add(new ComboBoxItem { Content = "国内期货", Tag = "futures" });
@@ -127,19 +162,26 @@ public partial class SettingsDialog : Window
 
         // 自选列表
         var gCodes = new GroupBox { Header = "自选列表", Margin = new Thickness(0) };
-        var codesPanel = new Grid { Margin = new Thickness(2) };
+        var codesPanel = new Grid();
         codesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         codesPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _listCodes.Width = double.NaN;
         _listCodes.Height = double.NaN;
-        _listCodes.MinHeight = 260;
+        _listCodes.MinHeight = 165;
         _listCodes.VerticalAlignment = VerticalAlignment.Stretch;
         _listCodes.BorderThickness = new Thickness(0);
         _listCodes.Background = Brushes.White;
-        _listCodes.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Visible);
+        _listCodes.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
         _listCodes.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
         _listCodes.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         _listCodes.Items.SortDescriptions.Clear();
+        _listCodes.AllowDrop = true;
+        _listCodes.PreviewMouseLeftButtonDown += OnCodeDragMouseDown;
+        _listCodes.PreviewMouseLeftButtonUp += OnCodeDragMouseUp;
+        _listCodes.PreviewMouseMove += OnCodeDragMouseMove;
+        _listCodes.DragOver += OnCodeDragOver;
+        _listCodes.Drop += OnCodeDrop;
+        _listCodes.DragLeave += (s, e) => ClearCodeDragMarker();
         RebuildCodesList();
         // ListBoxItem 双击编辑
         _listCodes.MouseDoubleClick += (s, e) =>
@@ -149,8 +191,9 @@ public partial class SettingsDialog : Window
         };
         var listFrame = new Border
         {
-            BorderBrush = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(224, 224, 224)),
             BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
             Background = Brushes.White,
             Child = _listCodes,
             SnapsToDevicePixels = true
@@ -161,7 +204,7 @@ public partial class SettingsDialog : Window
         var btnCol = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin = new Thickness(10, 0, 0, 0),
+            Margin = new Thickness(5, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Top
         };
         string[] btnTexts = { "添加", "删除", "上移", "下移", "品种参数" };
@@ -171,8 +214,8 @@ public partial class SettingsDialog : Window
             var b = new Button
             {
                 Content = btnTexts[i],
-                Width = 76,
-                Margin = new Thickness(0, 0, 0, i == btnTexts.Length - 1 ? 0 : 8)
+                Width = 78,
+                Margin = new Thickness(0, 0, 0, i == btnTexts.Length - 1 ? 0 : 4)
             };
             btns[i] = b;
             btnCol.Children.Add(b);
@@ -232,7 +275,13 @@ public partial class SettingsDialog : Window
             _cfg.PositionSummaryVisible = false;
             NotifySave();
         };
-        var allItem = new ListBoxItem { Content = allCheckBox, Tag = null };
+        var allItem = new ListBoxItem
+        {
+            Content = allCheckBox,
+            Tag = null,
+            BorderBrush = Brushes.Transparent,
+            BorderThickness = new Thickness(0, 1, 0, 1)
+        };
         allCheckBox.PreviewMouseDown += (s, e) => allItem.IsSelected = true;
         _listCodes.Items.Add(allItem);
 
@@ -240,7 +289,8 @@ public partial class SettingsDialog : Window
         {
             var cb = new CheckBox
             {
-                Content = c,
+                Content = _cfg.Market == "futures" ? FuturesProductCode.ForDisplay(c) : c,
+                Tag = c,
                 IsChecked = _cfg.CheckedCodes.Contains(c),
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(2, 1, 2, 1),
@@ -252,7 +302,13 @@ public partial class SettingsDialog : Window
                     : $"持仓成本 {pos.CostPrice:0.####}，数量 {pos.Quantity:0.####}";
             cb.Checked += OnCodeCheckChanged;
             cb.Unchecked += OnCodeCheckChanged;
-            var item = new ListBoxItem { Content = cb, Tag = c };
+            var item = new ListBoxItem
+            {
+                Content = cb,
+                Tag = c,
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(0, 1, 0, 1)
+            };
             item.ContextMenu = MakeCodeContextMenu(c);
             cb.PreviewMouseDown += (s, e) => item.IsSelected = true;
             cb.GotFocus += (s, e) => item.IsSelected = true;
@@ -295,7 +351,7 @@ public partial class SettingsDialog : Window
     private void OnCodeCheckChanged(object sender, RoutedEventArgs e)
     {
         if (_suppressChange || sender is not CheckBox cb) return;
-        var code = cb.Content?.ToString();
+        var code = cb.Tag?.ToString();
         if (string.IsNullOrWhiteSpace(code)) return;
         if (cb.IsChecked == true)
         {
@@ -392,6 +448,251 @@ public partial class SettingsDialog : Window
         NotifySave();
     }
 
+    private void OnCodeDragMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        CancelCodeDragCandidate();
+        var item = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        if (item?.Tag is not string) return; // All 固定置顶，不参与拖动。
+
+        _codeDragCandidate = item;
+        _codeDragStart = e.GetPosition(_listCodes);
+        _codeDragHoldTimer.Start();
+    }
+
+    private void OnCodeDragMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_codeDragCandidate == null || _codeDragActive) return;
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            CancelCodeDragCandidate();
+            return;
+        }
+
+        var point = e.GetPosition(_listCodes);
+        if (Math.Abs(point.X - _codeDragStart.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(point.Y - _codeDragStart.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            CancelCodeDragCandidate();
+        }
+    }
+
+    private void OnCodeDragMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_codeDragActive) CancelCodeDragCandidate();
+    }
+
+    private void OnCodeDragHoldElapsed(object? sender, EventArgs e)
+    {
+        _codeDragHoldTimer.Stop();
+        var item = _codeDragCandidate;
+        if (item?.Tag is not string code || Mouse.LeftButton != MouseButtonState.Pressed)
+        {
+            CancelCodeDragCandidate();
+            return;
+        }
+
+        _codeDragActive = true;
+        _codeDragOrderChanged = false;
+        item.IsSelected = true;
+        item.Opacity = 0.55;
+        _listCodes.Cursor = Cursors.SizeNS;
+        Mouse.Capture(null);
+        try
+        {
+            DragDrop.DoDragDrop(_listCodes, new DataObject(CodeDragFormat, code), DragDropEffects.Move);
+        }
+        finally
+        {
+            item.Opacity = 1;
+            _listCodes.ClearValue(CursorProperty);
+            _codeDragActive = false;
+            _codeDragCandidate = null;
+            ClearCodeDragMarker();
+            if (_codeDragOrderChanged)
+            {
+                _codeDragOrderChanged = false;
+                NotifySave();
+            }
+        }
+    }
+
+    private void OnCodeDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(CodeDragFormat) ||
+            e.Data.GetData(CodeDragFormat) is not string code) return;
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+
+        var point = e.GetPosition(_listCodes);
+        var scrollViewer = FindVisualChild<ScrollViewer>(_listCodes);
+        if (point.Y < 24) scrollViewer?.LineUp();
+        else if (point.Y > _listCodes.ActualHeight - 24) scrollViewer?.LineDown();
+
+        var target = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        var insertIndex = GetLiveDragIndex(code, target, point, e);
+        MoveCodeDuringDrag(code, insertIndex);
+        ClearCodeDragMarker();
+    }
+
+    private void OnCodeDrop(object sender, DragEventArgs e)
+    {
+        ClearCodeDragMarker();
+        if (!e.Data.GetDataPresent(CodeDragFormat) || e.Data.GetData(CodeDragFormat) is not string code) return;
+        var point = e.GetPosition(_listCodes);
+        var target = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject);
+        var insertIndex = GetLiveDragIndex(code, target, point, e);
+        MoveCodeDuringDrag(code, insertIndex);
+        e.Handled = true;
+    }
+
+    private int GetLiveDragIndex(string code, ListBoxItem? target, Point point, DragEventArgs e)
+    {
+        var oldIndex = _cfg.Codes.IndexOf(code);
+        if (oldIndex < 0) return 0;
+
+        if (target?.Tag is string targetCode)
+        {
+            var targetIndex = _cfg.Codes.IndexOf(targetCode);
+            if (targetIndex < 0 || string.Equals(targetCode, code, StringComparison.OrdinalIgnoreCase))
+                return oldIndex;
+
+            var after = e.GetPosition(target).Y >= target.ActualHeight / 2;
+            var insertIndex = targetIndex + (after ? 1 : 0);
+            if (insertIndex > oldIndex) insertIndex--;
+            return Math.Clamp(insertIndex, 0, _cfg.Codes.Count - 1);
+        }
+
+        if (target != null) return 0; // All 固定置顶，品种只能放在它下方。
+        return point.Y <= 0 ? 0 : Math.Max(0, _cfg.Codes.Count - 1);
+    }
+
+    private void MoveCodeDuringDrag(string code, int insertIndex)
+    {
+        var oldIndex = _cfg.Codes.IndexOf(code);
+        if (oldIndex < 0 || _cfg.Codes.Count == 0) return;
+
+        insertIndex = Math.Clamp(insertIndex, 0, _cfg.Codes.Count - 1);
+        if (insertIndex == oldIndex) return;
+
+        var sourceItem = _listCodes.Items.OfType<ListBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), code, StringComparison.OrdinalIgnoreCase));
+        var oldPositions = CaptureCodeItemPositions();
+        foreach (var item in oldPositions.Keys) item.RenderTransform = Transform.Identity;
+
+        _cfg.Codes.RemoveAt(oldIndex);
+        _cfg.Codes.Insert(insertIndex, code);
+        SyncCheckedOrder();
+
+        if (sourceItem != null)
+        {
+            _listCodes.Items.Remove(sourceItem);
+            _listCodes.Items.Insert(insertIndex + 1, sourceItem);
+            sourceItem.IsSelected = true;
+            sourceItem.Opacity = 0.55;
+        }
+
+        _listCodes.UpdateLayout();
+        AnimateCodeItemReorder(oldPositions, sourceItem);
+        _codeDragOrderChanged = true;
+    }
+
+    private Dictionary<ListBoxItem, double> CaptureCodeItemPositions()
+    {
+        var positions = new Dictionary<ListBoxItem, double>();
+        foreach (var item in _listCodes.Items.OfType<ListBoxItem>())
+        {
+            if (!item.IsVisible) continue;
+            try
+            {
+                positions[item] = item.TransformToAncestor(_listCodes).Transform(new Point()).Y;
+            }
+            catch (InvalidOperationException)
+            {
+                // Virtualized rows can be detached while the list scrolls during a drag.
+            }
+        }
+        return positions;
+    }
+
+    private void AnimateCodeItemReorder(
+        IReadOnlyDictionary<ListBoxItem, double> oldPositions,
+        ListBoxItem? draggedItem)
+    {
+        foreach (var (item, oldY) in oldPositions)
+        {
+            if (ReferenceEquals(item, draggedItem) || !item.IsVisible) continue;
+
+            double newY;
+            try
+            {
+                newY = item.TransformToAncestor(_listCodes).Transform(new Point()).Y;
+            }
+            catch (InvalidOperationException)
+            {
+                continue;
+            }
+
+            var offset = oldY - newY;
+            if (Math.Abs(offset) < 0.5) continue;
+
+            var transform = new TranslateTransform();
+            item.RenderTransform = transform;
+            var animation = new DoubleAnimation
+            {
+                From = offset,
+                To = 0,
+                Duration = TimeSpan.FromMilliseconds(140),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                FillBehavior = FillBehavior.Stop
+            };
+            transform.BeginAnimation(TranslateTransform.YProperty, animation, HandoffBehavior.SnapshotAndReplace);
+        }
+    }
+
+    private void CancelCodeDragCandidate()
+    {
+        _codeDragHoldTimer.Stop();
+        if (!_codeDragActive) _codeDragCandidate = null;
+    }
+
+    private void SetCodeDragMarker(ListBoxItem item, bool after)
+    {
+        if (!ReferenceEquals(_codeDragMarkerItem, item)) ClearCodeDragMarker();
+        _codeDragMarkerItem = item;
+        item.BorderBrush = SystemColors.HighlightBrush;
+        item.BorderThickness = after ? new Thickness(0, 0, 0, 2) : new Thickness(0, 2, 0, 0);
+    }
+
+    private void ClearCodeDragMarker()
+    {
+        if (_codeDragMarkerItem == null) return;
+        _codeDragMarkerItem.BorderBrush = Brushes.Transparent;
+        _codeDragMarkerItem.BorderThickness = new Thickness(0, 1, 0, 1);
+        _codeDragMarkerItem = null;
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? source) where T : DependencyObject
+    {
+        while (source != null)
+        {
+            if (source is T match) return match;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T match) return match;
+            var nested = FindVisualChild<T>(child);
+            if (nested != null) return nested;
+        }
+        return null;
+    }
+
     private void EditCodeAndPosition(string oldCode)
     {
         _cfg.Positions.TryGetValue(oldCode, out var oldPosition);
@@ -473,11 +774,11 @@ public partial class SettingsDialog : Window
 
     private void BuildTabData()
     {
-        var tab = new TabItem { Header = "显示数据" };
-        var panel = new StackPanel { Margin = new Thickness(10) };
+        var tab = new TabItem { Header = CreateNavigationHeader("▦", "显示数据"), Tag = "显示数据" };
+        var panel = new StackPanel { Margin = new Thickness(4) };
 
         // 刷新间隔
-        var gInterval = new GroupBox { Header = "刷新间隔", Margin = new Thickness(0, 0, 0, 8) };
+        var gInterval = new GroupBox { Header = "刷新间隔", Margin = new Thickness(0, 0, 0, 4) };
         _cmbDataMarket.Width = 104;
         _cmbDataMarket.Items.Add(new ComboBoxItem { Content = "股票", Tag = "stock" });
         _cmbDataMarket.Items.Add(new ComboBoxItem { Content = "国内期货", Tag = "futures" });
@@ -517,24 +818,26 @@ public partial class SettingsDialog : Window
         panel.Children.Add(gInterval);
 
         // 显示指标：三类横向排列，分类名在左、指标开关在右。
-        var gFlags = new GroupBox { Header = "显示指标", Margin = new Thickness(0, 0, 0, 8) };
-        var flagsGrid = new Grid { Margin = new Thickness(8, 6, 8, 8) };
+        var gFlags = new GroupBox { Header = "显示指标", Margin = new Thickness(0, 0, 0, 4) };
+        var flagsGrid = new Grid { Margin = new Thickness(2, 1, 2, 2) };
         for (int i = 0; i < 3; i++)
             flagsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         gFlags.Content = flagsGrid;
 
         Grid MakeFlagSection(string title, IEnumerable<string> headers)
         {
-            var section = new Grid { Margin = new Thickness(0, 2, 0, 4) };
-            section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(82) });
+            var section = new Grid { Margin = new Thickness(0, 1, 0, 2) };
+            section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
             section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var titleBlock = new TextBlock
             {
                 Text = title,
+                FontFamily = new FontFamily("Microsoft YaHei UI"),
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.DimGray,
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 3, 10, 0),
+                Margin = new Thickness(0, 2, 8, 0),
             };
             section.Children.Add(titleBlock);
 
@@ -548,7 +851,7 @@ public partial class SettingsDialog : Window
                 var cb = new CheckBox
                 {
                     Content = label,
-                    Margin = new Thickness(0, 2, 16, 2),
+                    Margin = new Thickness(0, 1, 10, 1),
                     IsChecked = HeaderVisible(h),
                     IsEnabled = _cfg.Market != "futures" || !Constants.FuturesUnsupported.Contains(h),
                 };
@@ -578,11 +881,11 @@ public partial class SettingsDialog : Window
         var extraWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
         gExtra.Content = extraWrap;
 
-        // 仅显示数字
-        _cbShortCode.Content = "仅显示数字";
+        // 股票市场前缀显示；期货的 nf_ 前缀始终只用于内部请求。
+        _cbShortCode.Content = "隐藏市场前缀(股票)";
         _cbShortCode.IsChecked = _cfg.ShortCode;
-        _cbShortCode.IsEnabled = _cfg.CodeVisible;
-        _cbShortCode.Margin = new Thickness(0, 4, 24, 4);
+        _cbShortCode.IsEnabled = _cfg.Market == "stock" && _cfg.CodeVisible;
+        _cbShortCode.Margin = new Thickness(0, 3, 20, 3);
         _cbShortCode.Checked += (s, e) => { if (!_suppressChange) { _cfg.ShortCode = true; NotifySave(); } };
         _cbShortCode.Unchecked += (s, e) => { if (!_suppressChange) { _cfg.ShortCode = false; NotifySave(); } };
         extraWrap.Children.Add(_cbShortCode);
@@ -600,7 +903,7 @@ public partial class SettingsDialog : Window
             if (_cmbNameLength.SelectedItem is ComboBoxItem item && item.Tag is int v)
             { _cfg.NameLength = v; NotifySave(); }
         };
-        var nameLenPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 24, 4) };
+        var nameLenPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 20, 3) };
         nameLenPanel.Name = "NameLengthPanel";
         nameLenPanel.Children.Add(new TextBlock { Text = "名称长度：", VerticalAlignment = VerticalAlignment.Center });
         nameLenPanel.Children.Add(_cmbNameLength);
@@ -610,7 +913,7 @@ public partial class SettingsDialog : Window
         _cbFutAbbrev.Content = "缩写(期货)";
         _cbFutAbbrev.IsChecked = _cfg.FutAbbrev;
         UpdateAbbrevEnabled();
-        _cbFutAbbrev.Margin = new Thickness(0, 4, 24, 4);
+        _cbFutAbbrev.Margin = new Thickness(0, 3, 20, 3);
         _cbFutAbbrev.Checked += (s, e) => { if (!_suppressChange) { _cfg.FutAbbrev = true; NotifySave(); } };
         _cbFutAbbrev.Unchecked += (s, e) => { if (!_suppressChange) { _cfg.FutAbbrev = false; NotifySave(); } };
         extraWrap.Children.Add(_cbFutAbbrev);
@@ -628,7 +931,7 @@ public partial class SettingsDialog : Window
             if (_cmbB1s1Display.SelectedItem is ComboBoxItem item && item.Tag is string v)
             { _cfg.B1s1Display = v; NotifySave(); }
         };
-        var b1s1Panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        var b1s1Panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 3) };
         b1s1Panel.Children.Add(new TextBlock { Text = "买卖一：", VerticalAlignment = VerticalAlignment.Center });
         b1s1Panel.Children.Add(_cmbB1s1Display);
         extraWrap.Children.Add(b1s1Panel);
@@ -727,7 +1030,7 @@ public partial class SettingsDialog : Window
     private void UpdateMarketSensitiveControls()
     {
         UpdateAbbrevEnabled();
-        _cbShortCode.IsEnabled = _cfg.CodeVisible;
+        _cbShortCode.IsEnabled = _cfg.Market == "stock" && _cfg.CodeVisible;
         _cmbNameLength.IsEnabled = _cfg.NameVisible;
         foreach (var (header, cb) in _colCheckboxes)
             cb.IsEnabled = _cfg.Market != "futures" || !Constants.FuturesUnsupported.Contains(header);
@@ -738,11 +1041,11 @@ public partial class SettingsDialog : Window
 
     private void BuildTabAppearance()
     {
-        var tab = new TabItem { Header = "外观" };
-        var panel = new StackPanel { Margin = new Thickness(10) };
+        var tab = new TabItem { Header = CreateNavigationHeader("◐", "外观"), Tag = "外观" };
+        var panel = new StackPanel { Margin = new Thickness(4) };
 
         // 表格外观
-        var gTable = new GroupBox { Header = "表格外观", Margin = new Thickness(0, 0, 0, 8) };
+        var gTable = new GroupBox { Header = "表格外观", Margin = new Thickness(0, 0, 0, 4) };
         var tablePanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
         _chkTableHeader.Content = "显示表头";
         _chkTableHeader.IsChecked = _cfg.HeaderVisible;
@@ -752,11 +1055,11 @@ public partial class SettingsDialog : Window
         _chkTableGrid.IsChecked = _cfg.GridVisible;
         _chkTableGrid.Checked += (s, e) => { _cfg.GridVisible = true; _chkColumnResize.IsEnabled = true; NotifySave(); };
         _chkTableGrid.Unchecked += (s, e) => { _cfg.GridVisible = false; _chkColumnResize.IsEnabled = false; NotifySave(); };
-        _chkTableGrid.Margin = new Thickness(16, 0, 0, 0);
+        _chkTableGrid.Margin = new Thickness(12, 0, 0, 0);
         _chkColumnResize.Content = "允许拖动自定义网格边框";
         _chkColumnResize.IsChecked = _cfg.ColumnResizeEnabled;
         _chkColumnResize.IsEnabled = _cfg.GridVisible;
-        _chkColumnResize.Margin = new Thickness(16, 0, 0, 0);
+        _chkColumnResize.Margin = new Thickness(12, 0, 0, 0);
         _chkColumnResize.Checked += (s, e) => { _cfg.ColumnResizeEnabled = true; NotifySave(); };
         _chkColumnResize.Unchecked += (s, e) => { _cfg.ColumnResizeEnabled = false; NotifySave(); };
         tablePanel.Children.Add(_chkTableHeader);
@@ -766,8 +1069,8 @@ public partial class SettingsDialog : Window
         panel.Children.Add(gTable);
 
         // 颜色与透明度
-        var gColor = new GroupBox { Header = "颜色与透明度", Margin = new Thickness(0, 0, 0, 8) };
-        var colorGrid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
+        var gColor = new GroupBox { Header = "颜色与透明度", Margin = new Thickness(0, 0, 0, 4) };
+        var colorGrid = new Grid { Margin = new Thickness(2, 1, 2, 1) };
         for (int i = 0; i < 6; i++) colorGrid.ColumnDefinitions.Add(new ColumnDefinition());
         for (int i = 0; i < 5; i++) colorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -777,7 +1080,7 @@ public partial class SettingsDialog : Window
         _chkDefaultColor.Unchecked += (s, e) => { _cfg.DefaultColor = false; NotifySave(); };
         Grid.SetRow(_chkDefaultColor, 0); Grid.SetColumn(_chkDefaultColor, 0); Grid.SetColumnSpan(_chkDefaultColor, 6);
 
-        var btnFg = new Button { Content = "文字颜色…", Width = 90, Margin = new Thickness(4), IsEnabled = !_cfg.DefaultColor };
+        var btnFg = new Button { Content = "文字颜色…", Width = 86, Margin = new Thickness(3), IsEnabled = !_cfg.DefaultColor };
         btnFg.Click += (s, e) =>
         {
             var c = PickColor(_cfg.Fg);
@@ -789,7 +1092,7 @@ public partial class SettingsDialog : Window
         _chkDefaultColor.Checked += (s, e) => btnFg.IsEnabled = false;
         _chkDefaultColor.Unchecked += (s, e) => btnFg.IsEnabled = true;
 
-        var btnBg = new Button { Content = "背景颜色…", Width = 90, Margin = new Thickness(4) };
+        var btnBg = new Button { Content = "背景颜色…", Width = 86, Margin = new Thickness(3) };
         btnBg.Click += (s, e) =>
         {
             var hex = $"#{_cfg.Bg.R:X2}{_cfg.Bg.G:X2}{_cfg.Bg.B:X2}";
@@ -812,7 +1115,7 @@ public partial class SettingsDialog : Window
 
         // 字体与行距
         var gFont = new GroupBox { Header = "字体与行距" };
-        var fontGrid = new Grid { Margin = new Thickness(4) };
+        var fontGrid = new Grid { Margin = new Thickness(2) };
         for (int i = 0; i < 6; i++) fontGrid.ColumnDefinitions.Add(new ColumnDefinition());
         for (int i = 0; i < 3; i++) fontGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -1047,8 +1350,8 @@ public partial class SettingsDialog : Window
 
     private void BuildTabGeneral()
     {
-        var tab = new TabItem { Header = "常规" };
-        var panel = new StackPanel { Margin = new Thickness(10) };
+        var tab = new TabItem { Header = CreateNavigationHeader("⚙", "常规"), Tag = "常规" };
+        var panel = new StackPanel { Margin = new Thickness(4) };
 
         _chkStartOnBoot.Content = "开机启动";
         _chkStartOnBoot.IsChecked = _cfg.StartOnBoot;
@@ -1060,8 +1363,8 @@ public partial class SettingsDialog : Window
         gStartup.Content = startupPanel;
         panel.Children.Add(gStartup);
 
-        var gWindow = new GroupBox { Header = "窗口行为", Margin = new Thickness(0, 8, 0, 0) };
-        var windowGrid = new Grid { Margin = new Thickness(4) };
+        var gWindow = new GroupBox { Header = "窗口行为", Margin = new Thickness(0, 0, 0, 4) };
+        var windowGrid = new Grid { Margin = new Thickness(2) };
         for (int i = 0; i < 6; i++) windowGrid.ColumnDefinitions.Add(new ColumnDefinition());
         for (int i = 0; i < 3; i++) windowGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _chkSnapEnabled.Content = "启用贴边吸附";
@@ -1230,6 +1533,30 @@ public partial class SettingsDialog : Window
         Close();
     }
 
+    private void OnWindowClose(object sender, RoutedEventArgs e)
+    {
+        Close();
+    }
+
+    private void OnTitleBarMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // 鼠标过早释放时 WPF 可能拒绝进入窗口拖动。
+        }
+    }
+
+    private void OnSettingsTabChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, Tabs)) return;
+        if (Tabs.SelectedItem is TabItem { Tag: string title }) PageTitle.Text = title;
+    }
+
     private void OnApply(object sender, RoutedEventArgs e)
     {
         SaveAppliedSettings();
@@ -1247,6 +1574,7 @@ public partial class SettingsDialog : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        _codeDragHoldTimer.Stop();
         if (!_accepted) RestoreOriginal();
         if (SaveWindowPosition()) _saveCallback?.Invoke();
         base.OnClosing(e);
@@ -1256,8 +1584,8 @@ public partial class SettingsDialog : Window
     {
         if (!_targetConfig.HasSettingsPos) return;
 
-        var width = double.IsNaN(Width) || Width <= 0 ? 560 : Width;
-        var height = double.IsNaN(Height) || Height <= 0 ? 540 : Height;
+        var width = double.IsNaN(Width) || Width <= 0 ? 660 : Width;
+        var height = double.IsNaN(Height) || Height <= 0 ? 450 : Height;
         var left = SystemParameters.VirtualScreenLeft;
         var top = SystemParameters.VirtualScreenTop;
         var maxLeft = left + SystemParameters.VirtualScreenWidth - width;

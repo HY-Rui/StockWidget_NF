@@ -745,26 +745,6 @@ public partial class FloatWindow : Window
         miRefresh.Click += (s, e) => RefreshNow();
         menu.Items.Add(miRefresh);
 
-        // 显示表头
-        var miHeader = new MenuItem { Header = "显示表头", IsCheckable = true, IsChecked = _cfg.HeaderVisible };
-        miHeader.Click += (s, e) => { _cfg.HeaderVisible = !_cfg.HeaderVisible; Changed?.Invoke(); RebuildLast(); };
-        menu.Items.Add(miHeader);
-
-        // 重置列宽
-        var miReset = new MenuItem { Header = "自适应列宽", IsEnabled = _cfg.ColWidths.Count > 0 };
-        miReset.Click += (s, e) => { _cfg.ColWidths.Clear(); Changed?.Invoke(); RebuildLast(); };
-        menu.Items.Add(miReset);
-
-        // 显示网格
-        var miGrid = new MenuItem { Header = "显示网格", IsCheckable = true, IsChecked = _cfg.GridVisible };
-        miGrid.Click += (s, e) => { _cfg.GridVisible = !_cfg.GridVisible; ApplyAppearance(); Changed?.Invoke(); RebuildLast(); };
-        menu.Items.Add(miGrid);
-
-        // 默认颜色
-        var miColor = new MenuItem { Header = "默认颜色", IsCheckable = true, IsChecked = _cfg.DefaultColor };
-        miColor.Click += (s, e) => { _cfg.DefaultColor = !_cfg.DefaultColor; ApplyAppearance(); Changed?.Invoke(); RebuildLast(); };
-        menu.Items.Add(miColor);
-
         var miMouseThrough = new MenuItem { Header = "鼠标穿透", IsCheckable = true, IsChecked = _cfg.MouseThroughEnabled };
         miMouseThrough.Click += (s, e) =>
         {

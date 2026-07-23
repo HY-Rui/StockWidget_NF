@@ -24,8 +24,8 @@ internal static class SinaFutures
         return c;
     }
 
-    /// <summary>抓取期货行情。opts: shortCode, nameLength, abbrev。</summary>
-    public static List<QuoteRow> Fetch(IEnumerable<string> codes, bool shortCode, int nameLength, bool abbrev)
+    /// <summary>抓取期货行情。nf_ 仅用于请求，显示代码固定省略该前缀。</summary>
+    public static List<QuoteRow> Fetch(IEnumerable<string> codes, int nameLength, bool abbrev)
     {
         var label = string.Join(",", codes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
         if (string.IsNullOrEmpty(label)) throw new Exception("暂无数据，请添加自选");
@@ -94,7 +94,7 @@ internal static class SinaFutures
             else dispName = name.Length > nameLength ? name[..nameLength] : name;
 
             // 显示代码
-            string dispCode = shortCode && code.ToLowerInvariant().StartsWith("nf_") ? code[3..] : code;
+            string dispCode = FuturesProductCode.ForDisplay(code);
 
             var row = new QuoteRow();
             row.Code = code;
